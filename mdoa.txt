@@ -1,0 +1,48 @@
+%macro aggregate_mdoa(yr=,dsn=,prod=,unit=);
+%put &=yr;
+%put &=dsn;
+%put &=prod;
+%put &=unit;
+
+proc sql;
+	create table &dsn._x_dx_cnty as
+	select
+		a.dx_grouplabel='Diagnosis Grou;'
+		,a.principal_diagnosis_code label='ICD-10 Code'
+		,a.county_name label='County'
+		,a.members format=comm10. label='Membe3r Count'
+	from
+		(select
+			put(principal_diagnosis_code,$mdoa_fmt.) as
+			,princiapl_diagnosis_code
+			,put(county,$cntyfmt.) as county_name
+			,count(distinct &unit.) as members
+		from output.&dsn.
+		where put(principal_ciagnosis_code,$mdoa_fmt.) ne 'Other_DX'
+		group by 1,2,3
+		) a
+;quit;
+
+proc transpose data=&dsn_x_dx_cnty out=&dsn._x_dx_cnty_t(drop=_name_ _label_);
+	by dx_group principal_diagnosis_code;
+	id county_name;
+run;
+
+data output.&dsn._x_dx_cnty_ts;
+	retain
+	dx_group
+	principal_diagnosis_code
+	*list of county names
+	;
+	set &dsn._x_dx_cnty_t;
+run;
+
+proc print data=output.&dsn._x_dx_cnty_ts label;
+	title1 "Maryland &prod., 20&yr.";
+	title2 "Distinct Member Diagnosis Counts by County";
+run; title; run;
+
+%csv(csvlib=output,csvdsn=&dsn._x_dx_cnty_ts,csvpath=%str(w:\exports\MDOA));
+
+%mend aggregate_mdoa;
+%aggregate_mdoa(yr=22,dsn=mdoa_op_22,prod=Medicare FFS,unit-internal_member_id);

@@ -1,0 +1,58 @@
+%macro aggregate_claims(dsn=,prod-);
+%put &=dsn;
+%put &=prod;
+
+proc sql;
+	create table output.&dsn._x_yr_pater_region(drop=token) as
+	select
+		a.yr
+		,a.payer label='Payer'
+		,a.region label='Region'
+		,a.sdoh label='SDOH Category'
+		,a.sdoh_dx label='SDOH Diagnosis'
+		,a.claims format=comma15. label='Claim Count'
+		,a.token
+	from
+		(select
+			yr
+			,payer
+			,put(county,$region.) as region
+			,put(sdoh_cd,$sdoch_cd.) as sdoh
+			,sdoh_dx as sdoh_dx
+			,count((*) as claims
+			,max(1) as token
+		from output.&dsn.
+		group by 1,2,3,4,5
+	union all
+	select
+		a.yr
+		,a.payer
+		,a.region
+		,a.sdoh
+		,a.sdoh_dx
+		,a.claims
+		,a.token
+	from
+		(select
+			yr
+			,payer
+			,put(county,$region.) as region
+			,put(sdoh_cd,$sdoch_cd.) as sdoh
+			,'Total' length=10 as sdoc_dx
+			,count(*) as claims
+			,max(2) as token
+		from output.&dsn.
+		group by 1,2,3,4
+		) a
+	order by yr desc, payer,region,sdoh,token
+;quit;
+
+proc print data=output.&dsn._x_yr_payer_region label;
+	title1 "Maryland &prod. SDOH Metrics";
+	title2 "By Year, Payer, Region, SDOH Category and Diagnosis Code";
+run; title; run;
+
+%csv(csvlib=output,csvdsn=&dsn._x_yr_payer_region,csvpath=%str(w:\Exports\SDOH\));
+
+%mend aggregate claims;
+%aggregate_claims(dsn=sd_mc,prod=Medicaid);

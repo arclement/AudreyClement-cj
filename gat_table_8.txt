@@ -1,0 +1,112 @@
+/***************/
+/*GAT_TABLE_8  */
+/***************/
+%macro gat_table_8(var=,format=,label=);
+%put &=var;
+%put &=format;
+%put &=label;
+
+%macro make_table_8(prod=);
+%if &prod. = com %then %do;
+title "Table 8. Commercial Claims for Gender Affirming Treatment in MHCC APCD By County";
+%let idvar=internal_member_id;
+%end;
+%else %do;
+title "Table 8. Medicaid Claims for Gender Affirming Treatment in MHCC APCD By County";
+%let idvar=pidbdgp;
+%end;
+run;
+
+proc sql;
+	create table gat_qual_claims_&prod._county as
+	select
+		a.*
+		,city
+		,state
+		,county_name
+		,county_code
+		,case
+			when county_code le 0 then 'Unknown'
+			when county_code=510 then '24005'
+			when put(zip_code,$zip.) = 'MD' then catt('240',put(county_code,z2.));
+			else 'Other' end length=10 as county
+	from output.gat_qual_claims_&prod. a
+	left join refer.ref_zip b
+	on a.zip=b.zip_code
+;quit;
+
+proc sql;
+	create table output.gat_table_8_&prod. as
+	select
+		a.&var._grp label=&label."
+		,a.claims format=comma10. label="Total Claims"
+		,a.members format=comma10. label="Total Patients with Claims"
+		,a.providers format=comma10. label="Distinct Providers"
+		,a.network_claims format=comma10. label="In Network Claims"
+		,a.network_claims/a.claims format=percent6.0 label="Percent of In Network Claims" as pct_in_network
+	from
+		(select
+			put(&var., %unquote(&format.).) as &var._grp
+			,count(*) as claims
+			,count(distinct &idvar.) as members
+			,count(distinct provider) as providers
+			,count(case when network_indicator_code='1' then 1 else . end) as network_claims
+		from gat_qual_claims_&prod._county
+		group by 1
+		) a
+	union all
+		select
+		'Total, All Areas' as &var._grp
+		,count(*) as claims
+		,count(distinct &idvar.) as members
+		,count(distinct provider) as providers
+		,count(case when network_indicator_code='1' then 1 else . end) as network_claims
+		,calculated network_claims/calculated claims as pct_in_network
+	from gat_qual_claims_&prod._county
+;quit;
+
+proc print data=output.gat_table_8_&prod. label noobs;
+run; title; run;
+%mend make_table_8;
+
+%macro combine_table_8;
+proc sql;
+	create table output.gat_table_8 as
+	select
+		coalescec(a.&var._grp,b.&var._grp) label="&label."
+		.coalesce(a.claims,0)+coalesce(b.claims,0) format=comma10. label="Total Claims" as claims
+		,coalesce(a.members,0)+coalesce(b.members,0) format=comma10. lebel="Total Patients with Claims" as members
+		,coalesce(a.providers,0)+coalesce(b.providers,0) format=comma10. label="Distinct Providers" as providers
+		,coalesce(a.network_claims,0)+coalesce(b.network_claims,0) format=comma10. label="In Network Claims" as network_claims
+		,(coalesce(a.network_claims,0)+coalesce(b.network_claims,0))/calculated claims format=percent6.0 label="Percent In Network Claims" as pct_network_claims
+	from output.gat_table_8_com a
+	full outer join output.gat_table_8_med b
+	on a.&var._grp = b.&var._grp
+	where
+		a.&var._grp ne "Total, All Areas" and	
+		b.&var._grp ne "Total, All Areas"
+		
+	union all
+	select
+		coalescec(a.&var._grp,b.&var._grp) label="&label."
+		.coalesce(a.claims,0)+coalesce(b.claims,0) format=comma10. label="Total Claims" as claims
+		,coalesce(a.members,0)+coalesce(b.members,0) format=comma10. lebel="Total Patients with Claims" as members
+		,coalesce(a.providers,0)+coalesce(b.providers,0) format=comma10. label="Distinct Providers" as providers
+		,coalesce(a.network_claims,0)+coalesce(b.network_claims,0) format=comma10. label="In Network Claims" as network_claims
+		,(coalesce(a.network_claims,0)+coalesce(b.network_claims,0))/calculated claims format=percent6.0 label="Percent In Network Claims" as pct_network_claims
+	from output.gat_table_8_com a
+	full outer join output.gat_table_8_med b
+	on a.&var._grp = b.&var._grp
+	where
+		a.&var._grp eq "Total, All Areas" and	
+		b.&var._grp eq "Total, All Areas"
+;quit;
+
+proc print data=output.gat_table_8 label noobs;
+title1 "Table 8. Claims for Gender Affirming Treatment in the MHCC ACPD by County";
+run; title; run;
+%mend combine_table_8;
+%combine_table_8;
+
+%mend gat_table_8;
+%gat_table_8(var=county,format=%str($countyfmt),label=%str(Category));

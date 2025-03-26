@@ -1,0 +1,107 @@
+%macro aggregate_weightloss(yr=,pbmtype=,var=,format=,label=);
+proc sql;
+	create table output.weightloss_&pbmtype._&format._&yr. as
+	select
+		&var._grp
+		,a.members
+		,a.scripts
+		,a.total_paid_amt
+		,a.calc_paid_amt
+		,a.out_of_pocket_cost
+		,a.total_paid_amt/a.members as cost_per_user format=dollar15. label='Cost Per User'
+		,a.out_of_pocket_cost/a.members as out_of_pocket_cost_per_user format=dollar15. label='Out of Pocket Cost Per User'
+		,a.scripts/a.members as cripts_per_member format=10.1 label='Scripts Per User'
+		,a.total_paid_amt/a.scripts as cost_per_script format=dollar15. label='Cost Per Script'
+	from
+		(select
+			put(&var., $&format..) label="&label." as &var._grp
+			,count(distinct internal_member_id) as members format=comma10. label='Distinct Members'
+			,sum(thirty_day_equivalent) as scripts format=comm10. label='Total Scripts'
+			,sum(total_paid_amt) as calc_paid_amt format=dollar15. label='Calculated Paid Amount'
+			,sum(calc_paid_amt) as calc_paid_amt format=dollar15. label='Calculated Paid Amount'
+			,sum(out_of_pocket_cost) as out_of_pocket_cost format=dollar15. label='Out of Pocket Cost'
+		from output.weightloss_&pbmtype._&yr.
+		group by 1
+		)a
+	union all
+	select
+		'Average' as &var._grp
+		,count(distinct b.internal_member_id) as members
+		,sum(b.thirty_day_equivalent) as scripts
+		,sum(b.total_paid_amt) as total_paid_amt
+		,sum(b.calc_paid_amt) as calc_paid_amt
+		,sum(b.out_of_pocket_cost) as out_of_pocket_cost
+		,calculated out_of_pocket_cost/calculated members as out_of_pocket_cost_per_member
+		,calculated scripts/calculated members as scripts_per_member
+		,calculated total_paid_amt/calculated scripts as cost_per_script
+	from output.weightloss_&pbmtype._&yr. b
+;quit;
+%mend aggregate_weightloss;
+/*%aggregate_weightloss(yr=21,pbmtype=nonpbm,var=plan_liability_code,format=?,label=?);*/
+/*%aggregate_weightloss(yr=21,pbmtype=nonpbm,var=market_segment,format=market,label=?);*/
+
+%macro aggregate_abortions(yr=,var=,format=,label=);
+%put &=format;
+proc sql;
+	create table output.elig_abortions_x_&var._&yr. as
+	select
+		&var._grp
+		,abortions_&yr. label="20&yr. #"
+		,100*abortions_&yr./sum(abortions_&yr.) format=6.2 label="20&yr. %" as pct_abortions_yr
+	from
+		(select
+			put(&var., %unquote(&format.).) label="&label." as &var._grp
+			,count(*) as abortions_&yr.
+		from output.elig_abortions_&yr.
+		group by 1
+		)
+;quit;
+%mend aggregate_abortions;
+%aggregate_abortions(yr=21,var=age,format=agegrp,label=%str(Age Group (Years)));
+%aggregate_abortions(yr=21,var=race,format=%str($race),label=%str(Race));
+
+%macro dump_abortions(var=,var1=);
+proc sql;
+%if %length(&var1.) %then %do;
+	create table output.elig_abortions_x_&var._&var1. as
+%end;
+%else %do;
+	create table output.elig_abortions_x_&var. as
+%end;
+	select
+		a.&var._grp
+		,abortions_21
+		,pct_abortions_21
+		,abortions_22
+		,pct_abortions_22
+	from output.elig_abortions_x_&var._21 a
+	left outer join output.elig_abortions_x_&var._22 b
+		on a.&var._grp = b.&var._grp
+%if %length(&var1.) %then %do;
+	union all
+	select
+		a.&var1._grp
+		,abortions_21
+		,pct_abortions_21
+		,abortions_22
+		,pct_abortions_22
+	from ouput.elig_abortions_x_&var1.21 a
+	left outer join output.elig_abortions_x_&var1._22 b
+	on a.&var1._grp = b.&var1._grp
+%end;
+;quit;
+
+%if &var. = age %then %do;
+	proc print label data=output.elig_abortions_x_&var._&var1.;
+	title "Table 1. Total Number of Commercial FFS MCDB Participant Abortions by Age and Race, 2021-2022";
+%end;
+%else &if &var. = med_surg %then %do;
+	proc print label data=output.elig_abrtions_x_&var.;
+	title "Tahble 2. Total Number of Commercial FFS MCDB Participant Abortions by Procedure Type, 2021-2022:;
+%end;
+%else %do;
+%end;
+run; title; run;
+%mend dump_abortions;
+%dump_abortions(var=age,var1=race);
+%dump_abortions(var=med_surg);
